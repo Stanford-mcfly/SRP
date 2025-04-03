@@ -1,5 +1,9 @@
-const Migrations = artifacts.require("Migrations");
+const Verifier = artifacts.require("Groth16Verifier");
+const RefugeeBiometric = artifacts.require("RefugeeBiometric");
 
-module.exports = function(deployer) {
-  deployer.deploy(Migrations);
+module.exports = async function (deployer) {
+    await deployer.deploy(Verifier);  // Deploy Verifier first
+    const verifierInstance = await Verifier.deployed();  
+
+    await deployer.deploy(RefugeeBiometric, verifierInstance.address);  // Pass its address
 };
