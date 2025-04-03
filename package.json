@@ -1,13 +1,18 @@
 {
   "dependencies": {
+    "@helia/http": "^2.0.5",
+    "@ipld/dag-json": "^10.2.3",
+    "@tensorflow/tfjs": "^4.22.0",
     "@truffle/hdwallet-provider": "^2.1.15",
+    "canvas": "^3.1.0",
     "circom": "^0.5.46",
     "circomlib": "^2.0.5",
     "crypto-js": "^4.2.0",
     "dotenv": "^16.4.7",
     "express": "^5.1.0",
     "face-api.js": "^0.22.2",
-    "ipfs-http-client": "^60.0.1",
+    "helia": "^5.3.0",
+    "libp2p": "^2.8.2",
     "qrcode": "^1.5.4",
     "snarkjs": "^0.7.5",
     "web3": "^4.16.0"
