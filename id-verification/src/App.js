@@ -5,9 +5,11 @@ import { create } from "ipfs-http-client";
 import contractABI from './SimpleStorage.json';
 import idCardImage from "./selfie.jpeg";
 import selfieImage from "./vijay.jpeg";
+//import ssdeep from 'ssdeep';
+
 
 const ipfs = create({ url: "http://127.0.0.1:5001" });
-const contractAddress = "0xa8616F949435DdE5815d53C41b95611FE57bC5AD";
+const contractAddress = "0xF08223a1726dF8Ec4591a8084B7644ED11a58a4f";
 
 function App() {
   const idCardRef = useRef();
