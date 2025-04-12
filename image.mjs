@@ -7,9 +7,9 @@ async function sendRequest() {
   try {
     // 1. Initialize Web3 and set up accounts
     const web3 = new Web3('http://127.0.0.1:7545'); // Replace with your provider URL
-    const adminAddress = '0x92eaA14Dd2B90Ed3E2b1Ea882a5709f50Cf1BFFd'; // Replace with the admin's address
-    const officerAddress = '0x20b5877AB59fF86cfA7E9fe2FB5078F4f1FbDb55'; // Replace with the officer's address
-    const contractAddress = '0x3908f5dB29B3b2DF1E7109543cFAca1e24FB7cf1'; // Replace with the deployed contract address
+    const adminAddress = '0xDeb1dcA7feA62D357A93f8044bbCd1Ef54b74E68'; // Replace with the admin's address
+    const officerAddress = '0xCC8B4fd83eaE2fd88532F5B34f67d369ad74Bd10'; // Replace with the officer's address
+    const contractAddress = '0xf41672bf1502E2c4884f741f4C2aDAA43C23E491'; // Replace with the deployed contract address
     const contractABI = JSON.parse(fs.readFileSync('./build/contracts/RefugeeBiometric.json', 'utf8')).abi;
     const contract = new web3.eth.Contract(contractABI, contractAddress);
 
