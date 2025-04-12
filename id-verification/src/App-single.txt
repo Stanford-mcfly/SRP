@@ -1,0 +1,213 @@
+import { useEffect, useRef, useState } from 'react';
+import Web3 from 'web3';
+import * as faceapi from 'face-api.js';
+import { create } from "ipfs-http-client";
+import contractABI from './SimpleStorage.json';
+
+import idCardImage from "./Loki.jpg";
+import selfieImage from "./logesh.jpg";
+
+// Setup IPFS Client
+const ipfs = create({ url: "http://127.0.0.1:5001" });
+
+// Contract Address (Replace with actual deployed contract address)
+const contractAddress = "0x4d05595DB7F53Fe4fddAA897D0AeCe2fDf2307De";
+
+function App() {
+  const idCardRef = useRef();
+  const selfieRef = useRef();
+  const [matchResult, setMatchResult] = useState("");
+  const [account, setAccount] = useState("");
+  const [web3, setWeb3] = useState(null);
+  const [contract, setContract] = useState(null);
+
+  useEffect(() => {
+    connectToMetaMask();
+    loadModels();
+  }, []);
+
+  // Connect to MetaMask and load blockchain data
+  const connectToMetaMask = async () => {
+    if (typeof window.ethereum === 'undefined') {
+      setMatchResult("❌ MetaMask is not installed.");
+      return;
+    }
+
+    try {
+      // Request account access
+      await window.ethereum.request({ method: 'eth_requestAccounts' });
+
+      // Initialize Web3 and get accounts
+      const web3Instance = new Web3(window.ethereum);
+      const accounts = await web3Instance.eth.getAccounts();
+
+      // Set Web3, account, and contract instances
+      setWeb3(web3Instance);
+      setAccount(accounts[0]);
+
+      const contractInstance = new web3Instance.eth.Contract(contractABI.abi, contractAddress);
+      setContract(contractInstance);
+
+      console.log("✅ Connected to MetaMask:", accounts[0]);
+    } catch (error) {
+      console.error("MetaMask connection failed:", error);
+      setMatchResult("❌ MetaMask connection failed.");
+    }
+  };
+
+  // Load Face-API Models
+  const loadModels = async () => {
+    await Promise.all([
+      faceapi.nets.ssdMobilenetv1.loadFromUri("/models"),
+      faceapi.nets.faceLandmark68Net.loadFromUri("/models"),
+      faceapi.nets.faceRecognitionNet.loadFromUri("/models"),
+    ]);
+    console.log("✅ Face API models loaded!");
+  };
+
+  // Extract Face Embedding
+  const detectFace = async (imageElement, label) => {
+    if (!imageElement) return null;
+
+    console.log(`🔍 Detecting face in ${label}...`);
+    const detections = await faceapi.detectSingleFace(imageElement)
+      .withFaceLandmarks()
+      .withFaceDescriptor();
+
+    if (!detections) {
+      console.error(`❌ No face detected in ${label}`);
+      return null;
+    }
+
+    return detections.descriptor;
+  };
+
+  // Register User
+  const registerUser = async () => {
+    const idCardDescriptor = await detectFace(idCardRef.current, "ID Card");
+
+    if (!idCardDescriptor) {
+      setMatchResult("❌ No face detected in the ID card.");
+      return;
+    }
+
+    const ipfsHash = await uploadToIPFS(idCardDescriptor);
+
+    if (!ipfsHash) {
+      setMatchResult("❌ Failed to upload to IPFS.");
+      return;
+    }
+
+    await contract.methods.storeFaceHash(ipfsHash).send({ from: account, gas: 300000 });
+    setMatchResult(`✅ Registered! IPFS Hash: ${ipfsHash}`);
+    console.log("Stored in Blockchain:", ipfsHash);
+  };
+
+  // Upload to IPFS
+  const uploadToIPFS = async (descriptor) => {
+    try {
+      const descriptorArray = Array.from(descriptor);
+      const jsonString = JSON.stringify({ descriptor: descriptorArray });
+      const base64String = btoa(jsonString);
+
+      const added = await ipfs.add(base64String);
+
+      if (!added || !added.path) throw new Error("Invalid CID from IPFS");
+
+      console.log("✅ IPFS Upload Success:", added.path);
+      return added.path;
+    } catch (error) {
+      console.error("❌ IPFS Upload Error:", error.message);
+      return null;
+    }
+  };
+
+  // Verify User
+  const verifyUser = async () => {
+    try {
+      // Step 1: Detect face from the selfie image
+      const newDescriptor = await detectFace(selfieRef.current, "Selfie");
+      if (!newDescriptor) {
+        setMatchResult("❌ No face detected in the Selfie.");
+        return;
+      }
+  
+      // Step 2: Get IPFS hash from blockchain
+      const storedIPFSHash = await contract.methods.getFaceHash().call({ from: account });
+  
+      if (!storedIPFSHash || storedIPFSHash === "") {
+        setMatchResult("❌ No IPFS hash found on the blockchain.");
+        return;
+      }
+  
+      console.log("📦 Retrieved IPFS Hash from Blockchain:", storedIPFSHash);
+  
+      // Step 3: Fetch base64 data from IPFS
+      const ipfsData = await fetchFromIPFS(storedIPFSHash);
+      if (!ipfsData || !ipfsData.descriptor) {
+        setMatchResult("❌ Error retrieving descriptor from IPFS.");
+        return;
+      }
+  
+      const storedDescriptor = Float32Array.from(ipfsData.descriptor);
+  
+      // Step 4: Compare descriptors
+      const distance = euclideanDistance(newDescriptor, storedDescriptor);
+      const match = distance < 0.6;
+  
+      console.log(`📏 Distance: ${distance.toFixed(4)}`);
+      setMatchResult(match ? "✅ Match Found!" : "❌ No Match!");
+  
+    } catch (error) {
+      console.error("❌ Error during verification:", error);
+      setMatchResult("❌ Verification failed.");
+    }
+  };
+  
+
+  // Fetch Data from IPFS
+  const fetchFromIPFS = async (ipfsHash) => {
+    try {
+      const response = ipfs.cat(ipfsHash);
+      let chunks = [];
+      for await (const chunk of response) {
+        chunks.push(chunk);
+      }
+  
+      const completeData = new Uint8Array(chunks.reduce((acc, val) => acc.concat(Array.from(val)), []));
+      const base64String = new TextDecoder().decode(completeData);
+      const jsonString = atob(base64String); // decode base64 to JSON string
+      return JSON.parse(jsonString);
+    } catch (error) {
+      console.error("IPFS Fetch Error:", error);
+      return null;
+    }
+  };
+  
+  // Custom Euclidean Distance Function
+  const euclideanDistance = (arr1, arr2) => {
+    return Math.sqrt(arr1.reduce((sum, val, i) => sum + Math.pow(val - arr2[i], 2), 0));
+  };
+
+  return (
+    <>
+      <h2>Account: {account}</h2>
+      <button onClick={registerUser}>Register</button>
+      <button onClick={verifyUser}>Verify</button>
+
+      <div>
+        <h3>ID Card</h3>
+        <img ref={idCardRef} src={idCardImage} alt="ID Card" style={{ maxWidth: '300px' }} />
+      </div>
+
+      <div>
+        <h3>Current Image</h3>
+        <img ref={selfieRef} src={selfieImage} alt="Selfie" style={{ maxWidth: '300px' }} />
+      </div>
+
+      <h1>{matchResult}</h1>
+    </>
+  );
+}
+
+export default App;
