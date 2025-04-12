@@ -2,14 +2,18 @@ import fs from 'fs';
 import axios from 'axios';
 import sharp from 'sharp';
 import Web3 from 'web3';
+import dotenv from 'dotenv';
+
+// Load environment variables
+dotenv.config();
 
 async function sendRequest() {
   try {
     // 1. Initialize Web3 and set up accounts
-    const web3 = new Web3('http://127.0.0.1:7545'); // Replace with your provider URL
-    const adminAddress = '0xDeb1dcA7feA62D357A93f8044bbCd1Ef54b74E68'; // Replace with the admin's address
-    const officerAddress = '0xCC8B4fd83eaE2fd88532F5B34f67d369ad74Bd10'; // Replace with the officer's address
-    const contractAddress = '0xf41672bf1502E2c4884f741f4C2aDAA43C23E491'; // Replace with the deployed contract address
+    const web3 = new Web3(process.env.PROVIDER_URL); // Fetch provider URL from .env
+    const adminAddress = process.env.ADMIN_ADDRESS; // Fetch admin address from .env
+    const officerAddress = process.env.OFFICER_ADDRESS; // Fetch officer address from .env
+    const contractAddress = process.env.CONTRACT_ADDRESS; // Fetch contract address from .env
     const contractABI = JSON.parse(fs.readFileSync('./build/contracts/RefugeeBiometric.json', 'utf8')).abi;
     const contract = new web3.eth.Contract(contractABI, contractAddress);
 

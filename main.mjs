@@ -131,15 +131,10 @@ class CryptoService {
   static generateFuzzyHash(embedding) {
     try {
       const normalized = embedding.map(x => Math.round(x * 1000));
-      
-      // Generate Poseidon hash
       const hash = poseidon(normalized);
       const hashBigInt = BigInt(poseidon.F.toString(hash));
-      
-      // Convert to 32-byte hex string (Solidity bytes32 compatible)
       const hexString = hashBigInt.toString(16).padStart(64, '0');
       const buffer = Buffer.from(hexString, 'hex');
-      
       return web3.utils.bytesToHex(buffer);
     } catch (err) {
       throw new Error(`Hash generation failed: ${err.message}`);
@@ -151,13 +146,9 @@ class CryptoService {
 class IpfsService {
   static async storeData(data) {
     try {
-      const block = await Block.encode({ 
-        value: data, 
-        codec: json,
-        hasher: helia.hashers.get('sha2-256') // Correctly retrieve the hasher
-      });
-      await helia.blockstore.put(block.cid, block.bytes);
-      return block.cid.toString();
+      const bytes = json.encode(data); // Encode data as JSON
+      const cid = await fsUnix.addBytes(bytes); // Add bytes to UnixFS
+      return cid.toString();
     } catch (err) {
       throw new Error(`IPFS storage failed: ${err.message}`);
     }
@@ -165,13 +156,9 @@ class IpfsService {
 
   static async retrieveData(cidStr) {
     try {
-      const parsedCid = CID.parse(cid);
-      const bytes = await helia.blockstore.get(parsedCid);
-      return Block.decode({ 
-        bytes, 
-        codec: json, 
-        hasher: helia.hashers.get('sha2-256') // Correctly retrieve the hasher
-      });
+      const cid = CID.parse(cidStr); // Parse the CID
+      const bytes = await fsUnix.cat(cid); // Retrieve the block
+      return json.decode(bytes); // Decode the JSON data
     } catch (err) {
       throw new Error(`IPFS retrieval failed: ${err.message}`);
     }
@@ -182,7 +169,6 @@ class IpfsService {
 app.post('/register', async (req, res) => {
   try {
     const { image, biometricData } = req.body;
-    
     if (!image || !biometricData) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
