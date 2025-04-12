@@ -1,27 +1,31 @@
 import dotenv from 'dotenv';
 import express from 'express';
-import { createHelia } from 'helia';
+import { createHeliaHTTP } from '@helia/http';
+import { unixfs } from '@helia/unixfs';
+import { MemoryBlockstore } from 'blockstore-core';
+import { FsBlockstore } from 'blockstore-fs';
 import { CID } from 'multiformats/cid';
+import { sha256 } from 'multiformats/hashes/sha2';
+import * as json from '@ipld/dag-json';
 import crypto from 'crypto';
 import Web3 from 'web3';
 import QRCode from 'qrcode';
 import { createCanvas, loadImage, Canvas, Image, ImageData } from 'canvas';
 import * as faceapi from 'face-api.js';
-import circomlib from 'circomlib';
+import { buildPoseidon } from 'circomlibjs';
 import fs from 'fs';
-import { Block } from 'multiformats/block';
-import * as json from '@ipld/dag-json';
-import { fileURLToPath } from 'url';
 import path from 'path';
+import { fileURLToPath } from 'url';
 
 // Configure environment
 dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Initialize Express
+// Initialize Express with increased payload size
 const app = express();
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Configure Canvas for face-api.js
 faceapi.env.monkeyPatch({ Canvas, Image, ImageData });
@@ -40,21 +44,23 @@ requiredDirs.forEach(dir => {
 
 // Initialize Web3
 const web3 = new Web3(
-  new Web3.providers.HttpProvider(process.env.PROVIDER_URL || 'http://127.0.0.1:7545')
+  new Web3.providers.HttpProvider(process.env.PROVIDER_URL || 'http://localhost:7545')
 );
-const contractABI = JSON.parse(fs.readFileSync('./build/contracts/RefugeeBiometric.json')).abi;
+const contractABI = JSON.parse(fs.readFileSync('./build/contracts/RefugeeBiometric.json', 'utf8')).abi;
 const contract = new web3.eth.Contract(contractABI, process.env.CONTRACT_ADDRESS);
 
-// Initialize IPFS
-let helia;
+// Initialize Helia with UnixFS
+let helia, fsUnix;
 (async () => {
-  helia = await createHelia();
+  const blockstore = new FsBlockstore('./blockstore'); // Use a filesystem blockstore
+  helia = await createHeliaHTTP({ blockstore });
+  fsUnix = unixfs(helia);
+  console.log('Helia instance initialized with UnixFS');
 })();
 
 // Face Recognition Setup
 async function initializeFaceAPI() {
   try {
-    // Load models from correct directory structure
     await faceapi.nets.ssdMobilenetv1.loadFromDisk(
       path.join(__dirname, 'models', 'ssd_mobilenetv1')
     );
@@ -64,13 +70,13 @@ async function initializeFaceAPI() {
     await faceapi.nets.faceRecognitionNet.loadFromDisk(
       path.join(__dirname, 'models', 'face_recognition')
     );
-    console.log('All face models loaded successfully');
+    console.log('Face models loaded successfully');
   } catch (err) {
     throw new Error(`Face model loading failed: ${err.message}`);
   }
 }
 
-// Face Detection
+// Face Detection (returns first 5 dimensions)
 async function detectFace(imageBase64) {
   try {
     const buffer = Buffer.from(imageBase64.replace(/^data:image\/\w+;base64,/, ''), 'base64');
@@ -83,7 +89,7 @@ async function detectFace(imageBase64) {
       .withFaceLandmarks()
       .withFaceDescriptor();
 
-    return detection ? Array.from(detection.descriptor) : null;
+    return detection ? Array.from(detection.descriptor).slice(0, 5) : null;
   } catch (err) {
     throw new Error(`Face detection failed: ${err.message}`);
   }
@@ -93,16 +99,22 @@ async function detectFace(imageBase64) {
 class CryptoService {
   static encryptData(data) {
     try {
+      // Recursively convert BigInt to string
+      const safeData = JSON.parse(JSON.stringify(data, (_, value) =>
+        typeof value === 'bigint' ? value.toString() : value
+      ));
+  
       const key = crypto.randomBytes(32);
       const iv = crypto.randomBytes(16);
       const cipher = crypto.createCipheriv('aes-256-cbc', key, iv);
-      let encrypted = cipher.update(JSON.stringify(data), 'utf8', 'hex');
+      let encrypted = cipher.update(JSON.stringify(safeData), 'utf8', 'hex');
       encrypted += cipher.final('hex');
       return JSON.stringify({ iv: iv.toString('hex'), encrypted, key: key.toString('hex') });
     } catch (err) {
       throw new Error(`Encryption failed: ${err.message}`);
     }
   }
+  
 
   static decryptData(encryptedData) {
     try {
@@ -116,10 +128,15 @@ class CryptoService {
     }
   }
 
-  static generateFuzzyHash(embedding) {
+  static async generateFuzzyHash(embedding) {
     try {
+      const poseidon = await buildPoseidon();
       const normalized = embedding.map(x => Math.round(x * 1000));
-      return web3.utils.bytesToHex(circomlib.poseidon(normalized));
+      const hash = poseidon(normalized);
+      const hashBigInt = BigInt(poseidon.F.toString(hash));
+      const hexString = hashBigInt.toString(16).padStart(64, '0');
+      const buffer = Buffer.from(hexString, 'hex');
+      return web3.utils.bytesToHex(buffer);
     } catch (err) {
       throw new Error(`Hash generation failed: ${err.message}`);
     }
@@ -130,23 +147,19 @@ class CryptoService {
 class IpfsService {
   static async storeData(data) {
     try {
-      const block = await Block.encode({ 
-        value: data, 
-        codec: json,
-        hasher: helia.blockstore.hasher
-      });
-      await helia.blockstore.put(block.cid, block.bytes);
-      return block.cid.toString();
+      const bytes = json.encode(data); // Encode data as JSON
+      const cid = await fsUnix.addBytes(bytes); // Add bytes to UnixFS
+      return cid.toString();
     } catch (err) {
       throw new Error(`IPFS storage failed: ${err.message}`);
     }
   }
 
-  static async retrieveData(cid) {
+  static async retrieveData(cidStr) {
     try {
-      const parsedCid = CID.parse(cid);
-      const bytes = await helia.blockstore.get(parsedCid);
-      return Block.decode({ bytes, codec: json, hasher: helia.blockstore.hasher });
+      const cid = CID.parse(cidStr); // Parse the CID
+      const bytes = await fsUnix.cat(cid); // Retrieve the block
+      return json.decode(bytes); // Decode the JSON data
     } catch (err) {
       throw new Error(`IPFS retrieval failed: ${err.message}`);
     }
@@ -157,40 +170,40 @@ class IpfsService {
 app.post('/register', async (req, res) => {
   try {
     const { image, biometricData } = req.body;
-    
-    // Validate inputs
     if (!image || !biometricData) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
-    // Process image
     const embedding = await detectFace(image);
     if (!embedding) throw new Error('No face detected');
 
-    // Check duplicates
-    const fuzzyHash = CryptoService.generateFuzzyHash(embedding);
+    const fuzzyHash = await CryptoService.generateFuzzyHash(embedding);
     const isDuplicate = await contract.methods.fuzzyHashes(fuzzyHash).call();
     if (isDuplicate) return res.status(409).json({ error: 'Duplicate entry' });
 
-    // Store data
     const encryptedData = CryptoService.encryptData({ embedding, biometricData });
     const cid = await IpfsService.storeData(encryptedData);
 
-    // Blockchain transaction
     const commitment = web3.utils.soliditySha3(fuzzyHash, Date.now());
     const accounts = await web3.eth.getAccounts();
-    await contract.methods.register(fuzzyHash, cid, commitment)
-      .send({ from: accounts[0], gas: 500000 });
+    console.log('Web3 accounts:', accounts);
+console.log('Request from:', accounts[0], '| Officer should be:', process.env.OFFICER_ADDRESS);
 
-    // Generate QR Code
+    console.log('Sending transaction with:', { fuzzyHash, cid, commitment });
+
+await contract.methods.register(fuzzyHash, cid, commitment)
+  .send({ from: accounts[1], gas: 500000 });
+
+console.log('Transaction successful');
+
+
     const refugeeId = await contract.methods.refugeeCount().call();
     await QRCode.toFile(
-      path.join(__dirname, 'qr', `${refugeeId}.png`), 
+      path.join(__dirname, 'qr', `${refugeeId}.png`),
       JSON.stringify({ id: refugeeId, verificationUrl: `/verify/${refugeeId}` })
     );
 
     res.status(201).json({ refugeeId, qrUrl: `/qr/${refugeeId}.png` });
-
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -202,17 +215,16 @@ app.get('/verify/:id', async (req, res) => {
     if (!refugee.ipfsCID) return res.status(404).json({ error: 'Refugee not found' });
 
     const block = await IpfsService.retrieveData(refugee.ipfsCID);
-    const decryptedData = CryptoService.decryptData(block.value);
+    const decryptedData = CryptoService.decryptData(block);
 
     res.json({
       ...decryptedData,
       blockchainData: {
         id: refugee.id,
-        commitment: refugee.commitment,
+        commitment: refugee.zkpCommitment,
         registrationDate: refugee.registrationDate
       }
     });
-
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -224,7 +236,6 @@ async function startServer() {
     await initializeFaceAPI();
     app.listen(3000, () => {
       console.log('Server running on port 3000');
-      console.log('Face models loaded successfully');
     });
   } catch (err) {
     console.error('Server startup failed:', err.message);
