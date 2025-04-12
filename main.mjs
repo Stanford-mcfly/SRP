@@ -16,6 +16,8 @@ import { buildPoseidon } from 'circomlibjs';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import setupIpfsRoutes from './routes/ipfsRoutes.mjs';
+import setupRefugeeRoutes from './routes/refugeeRoutes.mjs';
 
 // Configure environment
 dotenv.config();
@@ -50,12 +52,17 @@ const contractABI = JSON.parse(fs.readFileSync('./build/contracts/RefugeeBiometr
 const contract = new web3.eth.Contract(contractABI, process.env.CONTRACT_ADDRESS);
 
 // Initialize Helia with UnixFS
-let helia, fsUnix;
+let fsUnix;
 (async () => {
   const blockstore = new FsBlockstore('./blockstore'); // Use a filesystem blockstore
-  helia = await createHeliaHTTP({ blockstore });
+  const helia = await createHeliaHTTP({ blockstore });
   fsUnix = unixfs(helia);
+
   console.log('Helia instance initialized with UnixFS');
+
+  // Initialize routes after fsUnix is ready
+  app.use( setupIpfsRoutes(fsUnix)); // Pass fsUnix to IPFS routes
+  app.use( setupRefugeeRoutes(contract, fsUnix)); // Pass fsUnix to Refugee routes
 })();
 
 // Face Recognition Setup
