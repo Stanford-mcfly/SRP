@@ -7,6 +7,7 @@
     "canvas": "^3.1.0",
     "circom": "^0.5.46",
     "circomlib": "^2.0.5",
+    "circomlibjs": "^0.1.7",
     "crypto-js": "^4.2.0",
     "dotenv": "^16.4.7",
     "express": "^5.1.0",
@@ -14,6 +15,7 @@
     "helia": "^5.3.0",
     "libp2p": "^2.8.2",
     "qrcode": "^1.5.4",
+    "sharp": "^0.33.5",
     "snarkjs": "^0.7.5",
     "web3": "^4.16.0"
   }
