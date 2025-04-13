@@ -36,7 +36,7 @@ async function sendRequest() {
     const payload = {
       image: `data:image/jpeg;base64,${optimized.toString('base64')}`,
       biometricData: {
-        name: "Amina Al-Sayed",
+        name: "Riyan-parag",
         nationality: "Syrian",
         dateOfBirth: "1990-05-15",
         biometricSignature: "R2D2-C3PO-2023"
