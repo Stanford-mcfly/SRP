@@ -14,19 +14,24 @@ let fsUnix;
 })();
 
 class IpfsService {
-  static async retrieveData(cidStr) {
+  constructor(fsUnix) {
+    this.fsUnix = fsUnix;
+  }
+
+  async storeData(data) {
+    try {
+      const bytes = json.encode(data); // Encode data as JSON
+      const cid = await this.fsUnix.addBytes(bytes); // Add bytes to UnixFS
+      return cid.toString();
+    } catch (err) {
+      throw new Error(`IPFS storage failed: ${err.message}`);
+    }
+  }
+
+  async retrieveData(cidStr) {
     try {
       const cid = CID.parse(cidStr); // Parse the CID
-      const bytes = await fsUnix.cat(cid); // Retrieve the block
-
-      // Debugging: Log the raw data retrieved from IPFS
-      console.log('Raw IPFS Data:', bytes);
-
-      // Ensure the data is a Uint8Array
-      if (!(bytes instanceof Uint8Array)) {
-        throw new Error('Data retrieved from IPFS is not a Uint8Array');
-      }
-
+      const bytes = await this.fsUnix.cat(cid); // Retrieve the block
       return json.decode(bytes); // Decode the JSON data
     } catch (err) {
       throw new Error(`IPFS retrieval failed: ${err.message}`);

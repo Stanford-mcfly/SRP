@@ -2,10 +2,14 @@ import express from 'express';
 import { CID } from 'multiformats/cid';
 import CryptoService from '../services/CryptoService.mjs'; // Assuming you have a CryptoService for encryption/decryption
 import FuzzyHashService from '../services/FuzzyHashService.mjs'; // For fuzzy hashing
+import IpfsService from '../services/IpfsService.mjs';
+import FaceRecognitionService from '../services/FaceRecognitionService.mjs';
 
 const router = express.Router();
 
 export default function setupRefugeeRoutes(contract, fsUnix) {
+  const ipfsService = new IpfsService(fsUnix);
+
   router.get('/refugees', async (req, res) => {
     try {
       const refugeeCount = await contract.methods.refugeeCount().call();
@@ -29,11 +33,17 @@ export default function setupRefugeeRoutes(contract, fsUnix) {
         }
 
         const decodedText = new TextDecoder().decode(dataBytes);
-        const encryptedData = JSON.parse(JSON.parse(decodedText));
+
+        // Parse the decoded text only once
+        const encryptedData = JSON.parse(decodedText);
 
         // Decrypt the data
         const decryptedData = CryptoService.decryptData(encryptedData);
-        const fuzzyHash = FuzzyHashService.generateHash(decryptedData.embedding);
+
+    
+        // Generate a fuzzy hash for the embedding
+        const fuzzyHash = await FuzzyHashService.generateHash(decryptedData.embedding);
+
         // Add refugee details to the response
         refugees.push({
           id: refugee.id.toString(), // Convert BigInt to string
@@ -50,6 +60,33 @@ export default function setupRefugeeRoutes(contract, fsUnix) {
     } catch (err) {
       console.error('Error fetching refugees:', err);
       res.status(500).json({ error: `Failed to fetch refugees: ${err.message}` });
+    }
+  });
+
+  router.post('/register', async (req, res) => {
+    try {
+      const { image, biometricData } = req.body;
+      if (!image || !biometricData) {
+        return res.status(400).json({ error: 'Missing required fields' });
+      }
+
+      const embedding = await FaceRecognitionService.detectFace(image);
+      if (!embedding) throw new Error('No face detected');
+
+      const fuzzyHash = await CryptoService.generateFuzzyHash(embedding);
+      const isDuplicate = await contract.methods.fuzzyHashes(fuzzyHash).call();
+      if (isDuplicate) return res.status(409).json({ error: 'Duplicate entry' });
+
+      const encryptedData = CryptoService.encryptData({ biometricData });
+      const cid = await ipfsService.storeData(encryptedData);
+
+      const commitment = web3.utils.soliditySha3(fuzzyHash, Date.now());
+      const accounts = await web3.eth.getAccounts();
+      await contract.methods.register(fuzzyHash, cid, commitment).send({ from: accounts[1], gas: 500000 });
+
+      res.status(201).json({ message: 'Registration successful' });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
     }
   });
 
