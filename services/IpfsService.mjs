@@ -4,21 +4,22 @@ import { createHeliaHTTP } from '@helia/http';
 import { FsBlockstore } from 'blockstore-fs';
 import * as json from '@ipld/dag-json';
 
-let fsUnix;
-
-// Initialize Helia with UnixFS
-(async () => {
-  const blockstore = new FsBlockstore('./blockstore'); // Use a filesystem blockstore
-  const helia = await createHeliaHTTP({ blockstore });
-  fsUnix = unixfs(helia);
-})();
-
 class IpfsService {
-  constructor(fsUnix) {
-    this.fsUnix = fsUnix;
+  constructor() {
+    this.fsUnix = null;
+  }
+
+  async initialize() {
+    const blockstore = new FsBlockstore('./blockstore'); // Use a filesystem blockstore
+    const helia = await createHeliaHTTP({ blockstore });
+    this.fsUnix = unixfs(helia);
   }
 
   async storeData(data) {
+    if (!this.fsUnix) {
+      throw new Error('IPFS service is not initialized. Call initialize() first.');
+    }
+
     try {
       const bytes = json.encode(data); // Encode data as JSON
       const cid = await this.fsUnix.addBytes(bytes); // Add bytes to UnixFS
@@ -29,6 +30,10 @@ class IpfsService {
   }
 
   async retrieveData(cidStr) {
+    if (!this.fsUnix) {
+      throw new Error('IPFS service is not initialized. Call initialize() first.');
+    }
+
     try {
       const cid = CID.parse(cidStr); // Parse the CID
       const bytes = await this.fsUnix.cat(cid); // Retrieve the block

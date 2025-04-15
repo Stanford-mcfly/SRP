@@ -1,51 +1,39 @@
 pragma circom 2.0.0;
 
 include "node_modules/circomlib/circuits/poseidon.circom";
-include "node_modules/circomlib/circuits/comparators.circom";
+include "node_modules/circomlib/circuits/comparators.circom"; // Include comparators for equality check
 
-template FuzzyMatcher() {
-    // Supported parameters for Poseidon (2-16 inputs)
-    var dimensions = 5; // Reduced from 128 to work with Poseidon
-    var threshold = 500; // 0.5 * 1000 fixed-point
-    
+template SimpleHasher(dimensions) {
     signal input biometric[dimensions];
     signal input salt;
     signal output commitment;
-    
-    component comparators[dimensions];
-    for (var i=0; i<dimensions; i++) {
-        comparators[i] = GreaterEqThan(10); // Reduced from 32-bit
-        comparators[i].in[0] <== biometric[i] * 1000;
-        comparators[i].in[1] <== threshold;
+
+    component hash = Poseidon(dimensions + 1);
+    for (var i = 0; i < dimensions; i++) {
+        hash.inputs[i] <== biometric[i];
     }
-    
-    component hasher = Poseidon(dimensions + 1);
-    for (var i=0; i<dimensions; i++) {
-        hasher.inputs[i] <== comparators[i].out;
-    }
-    hasher.inputs[dimensions] <== salt;
-    
-    commitment <== hasher.out;
+    hash.inputs[dimensions] <== salt;
+
+    commitment <== hash.out;
 }
 
-template RefugeeVerifier() {
+template SimpleVerifier(dimensions) {
+    signal input freshBiometric[dimensions];
+    signal input salt;
     signal input storedCommitment;
-    signal input freshBiometric[5]; // Match reduced dimensions
-    signal input originalSalt;
     signal output isValid;
-    
-    component matcher = FuzzyMatcher();
-    for (var i=0; i<5; i++) {
-        matcher.biometric[i] <== freshBiometric[i];
+
+    component hasher = SimpleHasher(dimensions);
+    for (var i = 0; i < dimensions; i++) {
+        hasher.biometric[i] <== freshBiometric[i];
     }
-    matcher.salt <== originalSalt;
-    
-    component check = IsEqual();
-    check.in[0] <== matcher.commitment;
-    check.in[1] <== storedCommitment;
-    
-    isValid <== check.out;
-    isValid === 1;
+    hasher.salt <== salt;
+
+    component equalityCheck = IsEqual(); // Use IsEqual comparator
+    equalityCheck.in[0] <== hasher.commitment;
+    equalityCheck.in[1] <== storedCommitment;
+
+    isValid <== equalityCheck.out; // Assign the result of the equality check
 }
 
-component main = RefugeeVerifier();
+component main = SimpleVerifier(5);

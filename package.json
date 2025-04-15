@@ -18,10 +18,16 @@
     "face-api.js": "^0.22.2",
     "helia": "^5.3.0",
     "libp2p": "^2.8.2",
+    "multer": "^1.4.5-lts.2",
     "multiformats": "^13.3.2",
     "qrcode": "^1.5.4",
     "sharp": "^0.33.5",
     "snarkjs": "^0.7.5",
     "web3": "^4.16.0"
+  },
+  "devDependencies": {
+    "chai": "^5.2.0",
+    "chai-http": "^5.1.1",
+    "mocha": "^11.1.0"
   }
 }

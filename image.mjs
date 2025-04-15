@@ -27,7 +27,7 @@ async function sendRequest() {
     }
 
     // 3. Optimize image
-    const optimized = await sharp('./image.png')
+    const optimized = await sharp('./man4.png')
       .resize(800, 800)
       .jpeg({ quality: 80 })
       .toBuffer();
@@ -36,10 +36,10 @@ async function sendRequest() {
     const payload = {
       image: `data:image/jpeg;base64,${optimized.toString('base64')}`,
       biometricData: {
-        name: "Riyan-parag",
-        nationality: "Syrian",
-        dateOfBirth: "1990-05-15",
-        biometricSignature: "R2D2-C3PO-2023"
+        name: "Masilamani",
+        nationality: "America",
+        dateOfBirth: "1999-08-17",
+        biometricSignature: "R2D2-C3PO-2024"
       }
     };
 
